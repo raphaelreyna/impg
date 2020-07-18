@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"fmt"
 	"github.com/iancoleman/strcase"
@@ -10,7 +11,7 @@ import (
 	"strings"
 )
 
-func uploadTable(db *sql.DB, tableName, fileName string, extract extractor) error {
+func uploadTable(ctx context.Context, db *sql.DB, tableName, fileName string, extract extractor) error {
 	er := func(e error) error {
 		return fmt.Errorf("%s error: %s", tableName, e.Error())
 	}
@@ -25,9 +26,9 @@ func uploadTable(db *sql.DB, tableName, fileName string, extract extractor) erro
 	scanner := bufio.NewScanner(file)
 	var line string
 	first := true
-	counter := 0
+	//counter := 0
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return er(err)
 	}
@@ -45,7 +46,7 @@ func uploadTable(db *sql.DB, tableName, fileName string, extract extractor) erro
 
 			// Create the statement used to upload a row
 			stmtString := pq.CopyIn(tableName, cols...)
-			stmt, err = tx.Prepare(stmtString)
+			stmt, err = tx.PrepareContext(ctx, stmtString)
 			if err != nil {
 				return er(err)
 			}
@@ -60,17 +61,20 @@ func uploadTable(db *sql.DB, tableName, fileName string, extract extractor) erro
 			return er(err)
 		}
 
-		_, err = stmt.Exec(vals...)
+		_, err = stmt.ExecContext(ctx, vals...)
 		if err != nil {
 			return er(err)
 		}
 
-		if counter > 10 {
-		}
-		counter += 1
+		/*
+			if counter > 500 {
+				break
+			}
+			counter += 1
+		*/
 	}
 
-	if _, err = stmt.Exec(); err != nil {
+	if _, err = stmt.ExecContext(ctx); err != nil {
 		return er(err)
 	}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"github.com/lib/pq"
@@ -10,7 +11,23 @@ import (
 
 type extractor func([]string) ([]interface{}, error)
 
+type table struct {
+	name      string
+	file      string
+	extractor extractor
+}
+
 var CreateTablesSQL = ""
+
+func upload(ctx context.Context, db *sql.DB, t *table, wg *sync.WaitGroup, cancel context.CancelFunc) {
+	defer wg.Done()
+	err := uploadTable(ctx, db, t.name, t.file, t.extractor)
+	if err != nil {
+		cancel()
+		fmt.Println(err)
+		return
+	}
+}
 
 func main() {
 	retVal := 1
@@ -45,40 +62,50 @@ func main() {
 	}
 
 	wg := &sync.WaitGroup{}
-	wg.Add(3)
-	// name_basics
-	go func() {
-		defer wg.Done()
-		err = uploadTable(db, "name_basics", "name.basics.tsv", nameBasics)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}()
+	ctx, cancelCtx := context.WithCancel(context.Background())
 
-	// title_akas
-	go func() {
-		defer wg.Done()
-		err = uploadTable(db, "title_akas", "title.akas.tsv", titleAkas)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}()
+	tables := []*table{
+		&table{
+			name:      "name_basic",
+			file:      "name.basic.tsv",
+			extractor: nameBasics,
+		},
+		&table{
+			name:      "title_akas",
+			file:      "title.akas.tsv",
+			extractor: titleAkas,
+		},
+		&table{
+			name:      "title_basics",
+			file:      "title.basics.tsv",
+			extractor: titleBasics,
+		},
+		&table{
+			name:      "title_crew",
+			file:      "title.crew.tsv",
+			extractor: titleCrew,
+		},
+		&table{
+			name:      "title_episode",
+			file:      "title.episode.tsv",
+			extractor: titleEpisode,
+		},
+		&table{
+			name:      "title_principals",
+			file:      "title.principals.tsv",
+			extractor: titlePrincipals,
+		},
+		&table{
+			name:      "title_ratings",
+			file:      "title.ratings.tsv",
+			extractor: titleRatings,
+		},
+	}
 
-	// title_basics
-	go func() {
-		defer wg.Done()
-		err = uploadTable(db, "title_basics", "title.basics.tsv", titleBasics)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}()
-	// title_crew
-	// title_episode
-	// title_principals
-	// title_ratings
+	for _, t := range tables {
+		wg.Add(1)
+		go upload(ctx, db, t, wg, cancelCtx)
+	}
 
 	wg.Wait()
 
