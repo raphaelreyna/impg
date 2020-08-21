@@ -3,31 +3,63 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"fmt"
 	"github.com/lib/pq"
 	"os"
+	"os/signal"
 	"sync"
 )
 
-type extractor func([]string) ([]interface{}, error)
+// CreateTablesSQL is set while building impg
+var CreateTablesSQL = ""
 
-type table struct {
+type tableJob struct {
 	name      string
 	file      string
 	extractor extractor
 }
 
-var CreateTablesSQL = ""
-
-func upload(ctx context.Context, db *sql.DB, t *table, wg *sync.WaitGroup, cancel context.CancelFunc) {
-	defer wg.Done()
-	err := uploadTable(ctx, db, t.name, t.file, t.extractor)
-	if err != nil {
-		cancel()
-		fmt.Println(err)
-		return
-	}
+var tableJobs = []*tableJob{
+	&tableJob{
+		name:      "name_basics",
+		file:      "name.basics.tsv",
+		extractor: nameBasics,
+	},
+	&tableJob{
+		name:      "title_akas",
+		file:      "title.akas.tsv",
+		extractor: titleAkas,
+	},
+	&tableJob{
+		name:      "title_basics",
+		file:      "title.basics.tsv",
+		extractor: titleBasics,
+	},
+	&tableJob{
+		name:      "title_crew",
+		file:      "title.crew.tsv",
+		extractor: titleCrew,
+	},
+	&tableJob{
+		name:      "title_episode",
+		file:      "title.episode.tsv",
+		extractor: titleEpisode,
+	},
+	&tableJob{
+		name:      "title_principals",
+		file:      "title.principals.tsv",
+		extractor: titlePrincipals,
+	},
+	&tableJob{
+		name:      "title_ratings",
+		file:      "title.ratings.tsv",
+		extractor: titleRatings,
+	},
 }
+
+// extractor functions are used to convert each row in a file into an appropriate empty interface slice.
+type extractor func([]string) ([]interface{}, error)
 
 func main() {
 	retVal := 1
@@ -35,22 +67,42 @@ func main() {
 		os.Exit(retVal)
 	}()
 
+	// Make sure SQL was added during build
 	if CreateTablesSQL == "" {
 		fmt.Printf("%s was not properly built: missing SQL for creating tables\n", os.Args[0])
 		return
 	}
 
-	if len(os.Args) < 2 {
-		fmt.Println("no connection string given")
-		return
+	// Setup flags
+	var (
+		host     string
+		port     int
+		user     string
+		password string
+		sslMode  bool
+	)
+	flag.StringVar(&host, "host", "localhost", `Postgres server host address`)
+	flag.IntVar(&port, "port", 5432, `Postgres server port`)
+	flag.StringVar(&user, "user", "postgres", `User to connect to the Postgres server as`)
+	flag.StringVar(&password, "pass", "postgres", `Password to connect to the Postgres server`)
+	flag.BoolVar(&sslMode, "ssl", false, `Use ssl-mode when connecting to the Postgres server`)
+	flag.Parse()
+
+	// Create Postgres connection string from flag values
+	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s sslmode=",
+		host, port, user, password)
+	if sslMode {
+		connStr += "enable"
+	} else {
+		connStr += "disable"
 	}
 
-	connector, err := pq.NewConnector(os.Args[1])
+	// Connect to database
+	connector, err := pq.NewConnector(connStr)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
 	db := sql.OpenDB(connector)
 	defer db.Close()
 
@@ -61,50 +113,28 @@ func main() {
 		return
 	}
 
-	wg := &sync.WaitGroup{}
+	// Listen for os signals
+	sigChan := make(chan os.Signal)
+	signal.Notify(sigChan, os.Kill)
 	ctx, cancelCtx := context.WithCancel(context.Background())
+	go func() {
+		<-sigChan
+		cancelCtx()
+	}()
 
-	tables := []*table{
-		&table{
-			name:      "name_basics",
-			file:      "name.basics.tsv",
-			extractor: nameBasics,
-		},
-		&table{
-			name:      "title_akas",
-			file:      "title.akas.tsv",
-			extractor: titleAkas,
-		},
-		&table{
-			name:      "title_basics",
-			file:      "title.basics.tsv",
-			extractor: titleBasics,
-		},
-		&table{
-			name:      "title_crew",
-			file:      "title.crew.tsv",
-			extractor: titleCrew,
-		},
-		&table{
-			name:      "title_episode",
-			file:      "title.episode.tsv",
-			extractor: titleEpisode,
-		},
-		&table{
-			name:      "title_principals",
-			file:      "title.principals.tsv",
-			extractor: titlePrincipals,
-		},
-		&table{
-			name:      "title_ratings",
-			file:      "title.ratings.tsv",
-			extractor: titleRatings,
-		},
-	}
-
-	for _, t := range tables {
+	// Start jobs
+	wg := &sync.WaitGroup{}
+	for _, tt := range tableJobs {
 		wg.Add(1)
-		go upload(ctx, db, t, wg, cancelCtx)
+		go func(t *tableJob) {
+			defer wg.Done()
+			err := uploadTable(ctx, db, t.name, t.file, t.extractor)
+			if err != nil {
+				cancelCtx()
+				fmt.Println(err)
+				return
+			}
+		}(tt)
 	}
 
 	wg.Wait()
