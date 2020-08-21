@@ -66,8 +66,8 @@ func main() {
 
 	tables := []*table{
 		&table{
-			name:      "name_basic",
-			file:      "name.basic.tsv",
+			name:      "name_basics",
+			file:      "name.basics.tsv",
 			extractor: nameBasics,
 		},
 		&table{
@@ -110,4 +110,6 @@ func main() {
 	wg.Wait()
 
 	retVal = 0
+
+	fmt.Println("Done")
 }

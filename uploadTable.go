@@ -26,7 +26,6 @@ func uploadTable(ctx context.Context, db *sql.DB, tableName, fileName string, ex
 	scanner := bufio.NewScanner(file)
 	var line string
 	first := true
-	//counter := 0
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -65,13 +64,6 @@ func uploadTable(ctx context.Context, db *sql.DB, tableName, fileName string, ex
 		if err != nil {
 			return er(err)
 		}
-
-		/*
-			if counter > 500 {
-				break
-			}
-			counter += 1
-		*/
 	}
 
 	if _, err = stmt.ExecContext(ctx); err != nil {

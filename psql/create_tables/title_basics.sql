@@ -6,6 +6,6 @@ CREATE TABLE IF NOT EXISTS title_basics (
        is_adult BOOLEAN,
        start_year SMALLINT,
        end_year SMALLINT,
-       runtime_minutes SMALLINT,
+       runtime_minutes INT,
        genres VARCHAR(64)[]
 );

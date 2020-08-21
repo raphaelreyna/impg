@@ -3,6 +3,6 @@ CREATE TABLE IF NOT EXISTS title_principals (
        ordering INTEGER,
        nconst VARCHAR(16),
        category VARCHAR(64),
-       job VARCHAR(256),
-       characters VARCHAR(256)[]
+       job VARCHAR(512),
+       characters VARCHAR(512)[]
 );
